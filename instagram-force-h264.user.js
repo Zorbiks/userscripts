@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Force Instagram H.264
+// @name         Instagram Force H.264
 // @namespace    zorbiks-instagram-h264
 // @author       Zorbiks
 // @version      1.0

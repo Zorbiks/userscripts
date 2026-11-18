@@ -1,67 +1,66 @@
 // ==UserScript==
-// @name         Force Facebook H.264
-// @namespace    zorbiks-facebook-h264
+// @name         Facebook Force H.264
+// @namespace    zorbiks-instagram-h264
 // @author       Zorbiks
-// @version      1.0
-// @description  Forces Facebook to serve only H.264 video by blocking VP9/AV1/HEVC support detection.
-// @author       You
+// @version      1.1
+// @description  Force Facebook to use H.264 (AVC) video playback by blocking VP9, AV1, and HEVC
 // @match        *://*.facebook.com/*
 // @match        *://*.fbcdn.net/*
 // @run-at       document-start
 // @grant        none
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-    // Codecs to block (VP8, VP9, AV1, HEVC)
-    const BLOCKED_CODEC_PATTERN = /vp0?[89]|av01|hev1|hvc1/i;
+    const BLOCKED_CODECS = ['vp09', 'vp9', 'vp8', 'av01', 'av1', 'hev1', 'hvc1'];
 
-    // 1. Override MediaSource.isTypeSupported (the main check)
-    const originalIsTypeSupported = MediaSource.isTypeSupported;
-    MediaSource.isTypeSupported = function(type) {
-        if (BLOCKED_CODEC_PATTERN.test(type)) {
-            return false;
-        }
-        return originalIsTypeSupported.call(MediaSource, type);
-    };
+    function isBlockedVideoCodec(type) {
+        if (!type || typeof type !== 'string') return false;
+        const lower = type.toLowerCase();
 
-    // 2. Override HTMLVideoElement.prototype.canPlayType (fallback check)
-    const originalCanPlayType = HTMLVideoElement.prototype.canPlayType;
-    HTMLVideoElement.prototype.canPlayType = function(type) {
-        if (BLOCKED_CODEC_PATTERN.test(type)) {
+        // Only filter video MIME types
+        if (!lower.includes('video/')) return false;
+
+        // Explicitly allow H.264 / AVC
+        if (lower.includes('avc1') || lower.includes('avc3')) return false;
+
+        // Block modern/non-H.264 codecs
+        return BLOCKED_CODECS.some(codec => lower.includes(codec));
+    }
+
+    // Hook HTMLVideoElement.prototype.canPlayType
+    const origCanPlayType = HTMLVideoElement.prototype.canPlayType;
+    HTMLVideoElement.prototype.canPlayType = function (type) {
+        if (isBlockedVideoCodec(type)) {
             return '';
         }
-        return originalCanPlayType.call(this, type);
+        return origCanPlayType.call(this, type);
     };
 
-    // 3. Override MediaSource.prototype.addSourceBuffer (safety net)
-    const originalAddSourceBuffer = MediaSource.prototype.addSourceBuffer;
-    MediaSource.prototype.addSourceBuffer = function(mimeType) {
-        if (BLOCKED_CODEC_PATTERN.test(mimeType)) {
-            console.warn('[Force H.264] Blocked source buffer for codec:', mimeType);
-            // Throw an error to prevent the player from trying to use it
-            throw new Error('Codec not supported by user script policy');
-        }
-        return originalAddSourceBuffer.call(this, mimeType);
-    };
-
-    // 4. Override navigator.mediaCapabilities.decodingInfo (modern API)
-    if (navigator.mediaCapabilities && navigator.mediaCapabilities.decodingInfo) {
-        const originalDecodingInfo = navigator.mediaCapabilities.decodingInfo.bind(navigator.mediaCapabilities);
-        navigator.mediaCapabilities.decodingInfo = function(config) {
-            if (config && config.video && config.video.contentType) {
-                if (BLOCKED_CODEC_PATTERN.test(config.video.contentType)) {
-                    return Promise.resolve({
-                        supported: false,
-                        smooth: false,
-                        powerEfficient: false
-                    });
-                }
+    // Hook MediaSource.isTypeSupported
+    if (typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported) {
+        const origIsTypeSupported = MediaSource.isTypeSupported;
+        MediaSource.isTypeSupported = function (type) {
+            if (isBlockedVideoCodec(type)) {
+                return false;
             }
-            return originalDecodingInfo(config);
+            return origIsTypeSupported.call(this, type);
         };
     }
 
-    console.log('[Force H.264] Codec overrides installed. Facebook should now use H.264.');
+    // Hook navigator.mediaCapabilities.decodingInfo
+    if (navigator.mediaCapabilities && navigator.mediaCapabilities.decodingInfo) {
+        const origDecodingInfo = navigator.mediaCapabilities.decodingInfo;
+        navigator.mediaCapabilities.decodingInfo = function (config) {
+            if (config && config.video && isBlockedVideoCodec(config.video.contentType)) {
+                return Promise.resolve({
+                    supported: false,
+                    smooth: false,
+                    powerEfficient: false
+                });
+            }
+            return origDecodingInfo.call(this, config);
+        };
+    }
 })();
